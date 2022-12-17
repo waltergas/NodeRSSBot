@@ -1,8 +1,8 @@
 import winston from 'winston';
 import DailyRotateFile from 'winston-daily-rotate-file';
-import cleanStack from 'clean-stack';
+import cleanStack from '@cjsa/clean-stack';
 const logger = winston.createLogger({
-    level: process.env.NODE_PRODUTION ? 'info' : 'debug',
+    level: process.env.NODE_PRODUCTION ? 'info' : 'debug',
     format: winston.format.combine(
         winston.format.timestamp(),
         winston.format.json()
@@ -54,4 +54,13 @@ export function logDBError(error: any): void {
     }
     logger.error({ type: 'db', error });
 }
-export default logger;
+
+const LEVELS = new Set<string | symbol>(Object.keys(logger.levels));
+export default new Proxy(logger, {
+    get: (target, p) => {
+        if (LEVELS.has(p)) {
+            return target[p].bind(logger);
+        }
+        return target[p];
+    }
+});
