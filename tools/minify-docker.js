@@ -1,11 +1,11 @@
 const path = require('path');
 const { nodeFileTrace } = require('@vercel/nft');
-const cpFile = require('cp-file');
+const fs = require('fs/promises');
 
 const files = [
     'dist/source/index.js',
-    'node_modules/cross-env/src/bin/cross-env.js',
-    'node_modules/cross-env/src/index.js',
+    'node_modules/cross-env/dist/bin/cross-env.js',
+    'node_modules/cross-env/dist/bin/cross-env-shell.js',
     'dist/source/utils/fetch.js'
 ];
 const resultFolder = path.resolve('node_modules-minimal');
@@ -19,7 +19,7 @@ const resultFolder = path.resolve('node_modules-minimal');
     const deps = Array.from(fileList).filter((f) => f.includes('node_modules'));
     await Promise.all(
         deps.map(async (f) => {
-            cpFile(f, path.join(resultFolder, f));
+            fs.cp(f, path.join(resultFolder, f));
         })
     );
 })();

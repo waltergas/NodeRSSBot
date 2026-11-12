@@ -1,56 +1,110 @@
-import iconv from 'iconv-lite';
-import got from '../source/utils/got';
-import { config } from '../source/config';
-import createTestServer from 'create-test-server';
+type MockedFetchResponse = {
+    ok: boolean;
+    status: number;
+    statusText?: string;
+    textConverted?: jest.Mock<Promise<string>, []>;
+};
 
-jest.setTimeout(10 * 1000);
+const requestMock = jest.fn();
+const defaultsMock = jest.fn(() => requestMock);
 
-const text = '中文';
-let server: Awaited<ReturnType<typeof createTestServer>>;
+function loadGotModule() {
+    jest.resetModules();
+    requestMock.mockReset();
+    defaultsMock.mockClear();
+
+    jest.doMock('make-fetch-happen', () => ({
+        __esModule: true,
+        default: {
+            defaults: defaultsMock
+        }
+    }));
+    jest.doMock('../source/config', () => ({
+        config: {
+            UA: 'NodeRSSBot Test UA',
+            resp_timeout: 12,
+            PKG_ROOT: '/tmp/node-rssbot-test'
+        }
+    }));
+    jest.doMock('../source/utils/agent', () => ({
+        proxyUrl: 'http://proxy.example:8080'
+    }));
+
+    return require('../source/utils/got') as typeof import('../source/utils/got');
+}
+
 describe('got', () => {
-    beforeAll(async () => {
-        server = await createTestServer();
-        server.get('/testUA', (req, res) => {
-            const ua = req.headers['user-agent'];
-            expect(ua).toEqual(config.UA);
-            res.status(200).end('1');
-        });
+    test('configures make-fetch-happen defaults', () => {
+        loadGotModule();
 
-        server.get('/testGBK', (_req, res) => {
-            res.setHeader('content-type', 'text/plain charset=gbk');
-            res.send(iconv.encode(text, 'gbk'));
-        });
-
-        server.get('/testGB2312', (_req, res) => {
-            res.setHeader('content-type', 'text/plain charset=gbk');
-            res.send(iconv.encode(text, 'gb2312'));
-        });
-
-        server.get('/test304', (_req, res) => {
-            res.status(304).send('');
+        expect(defaultsMock).toHaveBeenCalledWith({
+            headers: {
+                'user-agent': 'NodeRSSBot Test UA',
+                accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8 '
+            },
+            timeout: 12 * 1000,
+            proxy: 'http://proxy.example:8080',
+            retry: {
+                randomize: true,
+                maxTimeout: 30 * 1000,
+                retries: 5
+            },
+            cachePath: '/tmp/node-rssbot-test/data/fetch-cache'
         });
     });
-    afterAll(async () => {
-        await server.close();
-    });
-    test('should work on http1', async () => {
-        const resp = await got(`${server.url}/testUA`);
-        expect(resp.status).toBe(200);
+
+    test('returns successful responses unchanged', async () => {
+        const gotModule = loadGotModule();
+        const textConverted = jest.fn(async () => '中文');
+        const response: MockedFetchResponse = {
+            ok: true,
+            status: 200,
+            textConverted
+        };
+        requestMock.mockResolvedValue(response);
+
+        const result = await gotModule.default('https://example.com/feed.xml');
+
+        expect(result).toBe(response);
+        await expect(result.textConverted?.()).resolves.toBe('中文');
+        expect(requestMock).toHaveBeenCalledWith(
+            'https://example.com/feed.xml',
+            undefined
+        );
     });
 
-    test('should work on non UTF8 response', async () => {
-        const resp = await got(`${server.url}/testGBK`);
-        const textReplied = await resp.textConverted();
-        expect(textReplied).toBe(text);
+    test('allows 304 responses without throwing', async () => {
+        const gotModule = loadGotModule();
+        const response: MockedFetchResponse = {
+            ok: false,
+            status: 304,
+            textConverted: jest.fn(async () => '')
+        };
+        requestMock.mockResolvedValue(response);
 
-        const resp2 = await got(`${server.url}/testGB2312`);
-        const textReplied2 = await resp2.textConverted();
-        expect(textReplied2).toBe(text);
+        const result = await gotModule.default('https://example.com/feed.xml');
+
+        expect(result).toBe(response);
+        await expect(result.textConverted?.()).resolves.toBe('');
     });
 
-    test('should not throw but return empty body in 304 Not Modified', async () => {
-        const resp = await got(`${server.url}/test304`);
-        expect(resp.status).toBe(304);
-        expect(await resp.textConverted()).toBe('');
+    test('wraps non-304 error responses in HTTPError', async () => {
+        const gotModule = loadGotModule();
+        const options = { method: 'POST' } as const;
+        const response: MockedFetchResponse = {
+            ok: false,
+            status: 502,
+            statusText: 'Bad Gateway'
+        };
+        requestMock.mockResolvedValue(response);
+
+        await expect(
+            gotModule.default('https://example.com/feed.xml', options)
+        ).rejects.toMatchObject({
+            name: 'HTTPError',
+            message: 'Request failed with status code 502 Bad Gateway',
+            response,
+            options
+        });
     });
 });

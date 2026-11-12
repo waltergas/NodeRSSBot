@@ -34,6 +34,12 @@ export const config: Omit<Config, 'PKG_ROOT'> = {
         .asString(),
     not_send: env.get('NOT_SEND').default(0).asBool(), // just for debug use
     concurrency: env.get('RSSBOT_CONCURRENCY').default(200).asIntPositive(),
+    send_concurrency: env
+        .get('RSSBOT_SEND_CONCURRENCY')
+        .default(48)
+        .asIntPositive(),
+    send_rate: env.get('RSSBOT_SEND_RATE').default(45).asIntPositive(),
+    db_pool_max: env.get('RSSBOT_DB_POOL_MAX').default(15).asIntPositive(),
     delete_on_err_send: env.get('DELETE_ON_ERR_SEND').default(1).asBool(), // block and chat not found
     resp_timeout: env.get('RSSBOT_RESP_TIMEOUT').default(40).asIntPositive(),
     allow_list: env
@@ -43,7 +49,11 @@ export const config: Omit<Config, 'PKG_ROOT'> = {
         .map((id) => Number(id)),
     auto_migrate: env.get('AUTO_MIGRATE').default(1).asBool(),
     sentry_dsn: env.get('SENTRY_DSN').default('').asString(),
-    enable_throttle: env.get('ENABLE_THROTTLE').default(0).asBool()
+    enable_throttle: env.get('ENABLE_THROTTLE').default(0).asBool(),
+    telegram_api_base: env
+        .get('TELEGRAM_API_BASE')
+        .default('https://api.telegram.org')
+        .asString()
 };
 Object.defineProperty(config, 'PKG_ROOT', {
     enumerable: false,
@@ -53,7 +63,7 @@ Object.defineProperty(config, 'PKG_ROOT', {
 
 let GAP_MINUTES: number;
 const { fetch_gap } = config;
-const gapNum = parseInt(fetch_gap.substring(0, fetch_gap.length - 1));
+const gapNum = parseInt(fetch_gap.substring(0, fetch_gap.length - 1), 10);
 const unit = fetch_gap[fetch_gap.length - 1];
 switch (unit) {
     case 'h':
